@@ -34,7 +34,6 @@ if 'model_trained' not in st.session_state:
     st.session_state.model_trained = False
     st.session_state.model_results = None
     
-# Helper functions
 def handle_missing_values(data: pd.DataFrame) -> pd.DataFrame:
     """Handle missing values in the dataset"""
     if data.isnull().sum().sum() == 0:
@@ -59,7 +58,7 @@ def handle_missing_values(data: pd.DataFrame) -> pd.DataFrame:
         try:
             fill_value = float(fill_value) if '.' in fill_value else int(fill_value)
         except ValueError:
-            pass  # Keep as string if not convertible to number
+            pass
     
     if st.button("Apply Missing Value Treatment"):
         cleaned_data = data.copy()
@@ -94,7 +93,7 @@ def apply_feature_scaling(data: pd.DataFrame) -> pd.DataFrame:
     """Apply scaling to continuous variables"""
     continuous_vars = [
         col for col in data.select_dtypes(include=np.number).columns
-        if len(data[col].unique()) > 2  # Not binary
+        if len(data[col].unique()) > 2
     ]
     
     if not continuous_vars:
@@ -155,7 +154,6 @@ def create_diagnostic_plots(X, y, y_pred, model_type='regression'):
     fig, axes = plt.subplots(2, 2, figsize=(12, 10))
     fig.suptitle("Model Diagnostic Plots", fontsize=16)
     
-    # Residuals vs Fitted
     residuals = y - y_pred
     axes[0, 0].scatter(y_pred, residuals, alpha=0.5)
     axes[0, 0].axhline(y=0, color='r', linestyle='-')
@@ -163,15 +161,12 @@ def create_diagnostic_plots(X, y, y_pred, model_type='regression'):
     axes[0, 0].set_ylabel('Residuals')
     axes[0, 0].set_title('Residuals vs Fitted')
     
-    # QQ Plot
     if model_type == 'regression':
         from scipy import stats
         stats.probplot(residuals, dist="norm", plot=axes[0, 1])
         axes[0, 1].set_title('Normal Q-Q')
     else:
-        # For classification, show ROC curve instead
         if hasattr(y_pred, 'shape') and len(y_pred.shape) > 1 and y_pred.shape[1] > 1:
-            # For multi-class, use first class probability
             y_score = y_pred[:, 1] if y_pred.shape[1] > 1 else y_pred
         else:
             y_score = y_pred
@@ -190,7 +185,6 @@ def create_diagnostic_plots(X, y, y_pred, model_type='regression'):
         axes[0, 1].set_title('Receiver Operating Characteristic')
         axes[0, 1].legend(loc="lower right")
     
-    # Scale-Location
     if model_type == 'regression':
         sqrt_residuals = np.sqrt(np.abs(residuals))
         axes[1, 0].scatter(y_pred, sqrt_residuals, alpha=0.5)
@@ -198,7 +192,6 @@ def create_diagnostic_plots(X, y, y_pred, model_type='regression'):
         axes[1, 0].set_ylabel('Sqrt(|Residuals|)')
         axes[1, 0].set_title('Scale-Location')
     else:
-        # For classification, show confusion matrix
         from sklearn.metrics import confusion_matrix
         cm = confusion_matrix(y, np.round(y_pred))
         sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=axes[1, 0])
@@ -206,7 +199,6 @@ def create_diagnostic_plots(X, y, y_pred, model_type='regression'):
         axes[1, 0].set_ylabel('Actual')
         axes[1, 0].set_title('Confusion Matrix')
     
-    # Actual vs Predicted
     axes[1, 1].scatter(y, y_pred, alpha=0.5)
     axes[1, 1].plot([y.min(), y.max()], [y.min(), y.max()], 'r--')
     axes[1, 1].set_xlabel('Actual')
@@ -222,7 +214,7 @@ def feature_importance_plot(model, X, feature_names):
     
     if hasattr(model, 'coef_'):
         importance = np.abs(model.coef_)
-        if len(importance.shape) > 1 and importance.shape[0] > 1:  # Multi-class case
+        if len(importance.shape) > 1 and importance.shape[0] > 1:
             importance = importance.mean(axis=0)
     elif hasattr(model, 'feature_importances_'):
         importance = model.feature_importances_
@@ -264,7 +256,6 @@ def perform_feature_selection(X, y, model_type='regression', method='forward', k
     
     st.success(f"Selected {len(selected_features)} features: {', '.join(selected_features)}")
     
-    # Plot performance vs number of features
     fig, ax = plt.subplots(figsize=(10, 6))
     
     metrics = []
@@ -295,7 +286,6 @@ def create_cross_validation_results(X, y, model, model_type, cv=5):
         scores = cross_val_score(model, X, y, cv=cv, scoring=scoring)
     
     if model_type == 'regression':
-        # Convert negative MSE to RMSE
         scores = np.sqrt(-scores)
         scoring_name = 'RMSE'
     
@@ -319,7 +309,6 @@ def main():
     st.set_page_config(page_title="Advanced Regression Analysis", layout="wide")
     st.title("📊 Advanced Regression Analysis App")
     
-    # Data upload section
     with st.sidebar.expander("📁 Data Upload", expanded=True):
         uploaded_file = st.file_uploader("Upload CSV file", type=["csv"])
         
@@ -331,12 +320,10 @@ def main():
             except Exception as e:
                 st.error(f"Error loading file: {str(e)}")
     
-    # Reset button
     if st.sidebar.button("Reset App"):
         for key in st.session_state.keys():
             del st.session_state[key]
     
-    # Data preprocessing section
     if st.session_state.data is not None and not st.session_state.missing_values_handled:
         st.session_state.processed_data = handle_missing_values(st.session_state.data)
     
@@ -345,14 +332,12 @@ def main():
         not st.session_state.scaling_applied):
         apply_feature_scaling(st.session_state.processed_data)
     
-    # Main analysis section
     if (st.session_state.processed_data is not None and 
         st.session_state.missing_values_handled and
         st.session_state.scaling_applied):
         
         data = st.session_state.processed_data
         
-        # Data overview
         st.header("Data Overview")
         col1, col2 = st.columns(2)
         
@@ -364,11 +349,9 @@ def main():
             if st.button("View Data Sample"):
                 st.dataframe(data.head())
         
-        # Data statistics
         if st.checkbox("Show Data Statistics"):
             st.write(data.describe())
         
-        # Correlation matrix
         if st.checkbox("Show Correlation Matrix"):
             fig, ax = plt.subplots(figsize=(10, 8))
             corr_matrix = data.select_dtypes(include=np.number).corr()
@@ -377,7 +360,6 @@ def main():
             plt.tight_layout()
             st.pyplot(fig)
         
-        # Variable selection
         st.header("Model Configuration")
         
         col1, col2 = st.columns(2)
@@ -394,7 +376,6 @@ def main():
                 data.select_dtypes(include=np.number).columns
             )
         
-        # X variables selection
         x_vars = st.multiselect(
             "Select Predictor Variables (X):",
             [col for col in data.select_dtypes(include=np.number).columns if col != y_var],
@@ -405,7 +386,6 @@ def main():
             st.warning("Please select at least one predictor variable!")
             return
         
-        # Model selection and hyperparameters
         st.subheader("Model Selection")
         col1, col2 = st.columns(2)
         
@@ -436,7 +416,6 @@ def main():
         with col2:
             test_size = st.slider("Test Set Size (%):", 10, 50, 30) / 100
             
-        # Advanced options
         with st.expander("Advanced Model Options"):
             if model_type in ["Ridge Regression", "Lasso Regression", "Elastic Net"]:
                 alpha = st.slider("Regularization Strength (Alpha):", 0.01, 10.0, 1.0)
@@ -452,12 +431,10 @@ def main():
                 max_depth = st.slider("Max Tree Depth:", 3, 10, 3)
                 learning_rate = st.slider("Learning Rate:", 0.01, 0.3, 0.1)
             
-            # Cross-validation options
             do_cross_validation = st.checkbox("Perform Cross-Validation")
             if do_cross_validation:
                 cv_folds = st.slider("Number of CV Folds:", 3, 10, 5)
         
-        # Feature selection
         with st.expander("Feature Selection"):
             do_feature_selection = st.checkbox("Perform Feature Selection")
             if do_feature_selection:
@@ -468,24 +445,22 @@ def main():
                 k_features = st.slider("Maximum Number of Features:", 
                                      1, len(x_vars), min(5, len(x_vars)))
         
-        # Train model button
-        if st.button("Train Model"):
-            # Validate data
+        # Dynamic button label based on approach
+        button_label = "Generate Model" if modeling_approach == "Traditional Statistics" else "Train Model"
+        
+        if st.button(button_label):
             if not validate_data(data, x_vars, y_var):
                 return
             
-            # Prepare data
             X = data[x_vars]
             y = data[y_var]
             
-            # For classification, ensure target is binary
             if analysis_type == "Classification":
                 if len(np.unique(y)) > 2:
                     st.warning("Target variable has more than 2 classes. Converting to binary (>= median).")
                     median_y = np.median(y)
                     y = (y >= median_y).astype(int)
             
-            # Feature selection if requested
             if do_feature_selection:
                 selected_features = perform_feature_selection(
                     X, y, 
@@ -496,7 +471,6 @@ def main():
                 X = X[selected_features]
                 x_vars = selected_features
             
-            # Apply polynomial features if selected
             if model_type == "Polynomial Regression":
                 poly = PolynomialFeatures(degree=poly_degree, include_bias=False)
                 X = pd.DataFrame(
@@ -507,42 +481,33 @@ def main():
             else:
                 feature_names = x_vars
             
-            # Train-test split
             X_train, X_test, y_train, y_test = train_test_split(
                 X, y, test_size=test_size, random_state=42
             )
             
-            # Initialize and train model
-            with st.spinner("Training model..."):
+            with st.spinner(f"{button_label}..."):
                 if analysis_type == "Regression" and modeling_approach == "Traditional Statistics":
-                    # Traditional statistical modeling
                     try:
                         if model_type == "OLS Regression":
                             formula = f"{y_var} ~ " + " + ".join(x_vars)
                             model = ols(formula=formula, data=data).fit()
                             
-                            # Store predictions
                             y_train_pred = model.predict(X_train)
                             y_test_pred = model.predict(X_test)
                             
-                            # Show full statistical summary
                             st.subheader("Statistical Model Summary")
                             st.text(str(model.summary()))
                             
-                            # Additional diagnostics
                             st.subheader("Model Diagnostics")
                             
-                            # Normality tests
                             st.write("**Normality Tests**")
                             jb_test = sm_diagnostic.het_white(model.resid, model.model.exog)
                             st.write(f"Jarque-Bera Test: p-value = {jb_test[1]:.4f}")
                             
-                            # Heteroscedasticity tests
                             st.write("**Heteroscedasticity Tests**")
                             white_test = sm_diagnostic.het_white(model.resid, model.model.exog)
                             st.write(f"White Test: p-value = {white_test[1]:.4f}")
                             
-                            # Multicollinearity check
                             st.write("**Multicollinearity Check**")
                             vif_data = pd.DataFrame()
                             vif_data["feature"] = x_vars
@@ -550,7 +515,6 @@ def main():
                                             for i in range(len(x_vars))]
                             st.dataframe(vif_data)
                             
-                            # Store model for predictions
                             st.session_state.model_trained = True
                             st.session_state.model_results = {
                                 'model': model,
@@ -570,7 +534,6 @@ def main():
                         st.error(f"Error in traditional modeling: {str(e)}")
                         return
                 else:
-                    # Machine learning approach
                     try:
                         if model_type == "Linear Regression":
                             model = LinearRegression()
@@ -601,11 +564,9 @@ def main():
                         
                         model.fit(X_train, y_train)
                         
-                        # Make predictions
                         y_train_pred = model.predict(X_train)
                         y_test_pred = model.predict(X_test)
                         
-                        # Cross-validation if requested
                         if do_cross_validation:
                             create_cross_validation_results(
                                 X, y, model, 
@@ -613,7 +574,6 @@ def main():
                                 cv=cv_folds
                             )
                         
-                        # Store results in session state
                         st.session_state.model_trained = True
                         st.session_state.model_results = {
                             'model': model,
@@ -633,7 +593,6 @@ def main():
                         st.error(f"Error in machine learning modeling: {str(e)}")
                         return
         
-        # Results section
         if st.session_state.model_trained and st.session_state.model_results is not None:
             res = st.session_state.model_results
             model = res['model']
@@ -651,13 +610,11 @@ def main():
             st.header("Model Results")
             
             if modeling_approach == "Traditional Statistics":
-                # Already shown summary in training section
                 pass
             else:
                 col1, col2 = st.columns(2)
                 
                 if analysis_type == "Regression":
-                    # Regression metrics
                     with col1:
                         st.subheader("Training Set Metrics")
                         train_rmse = np.sqrt(mean_squared_error(y_train, y_train_pred))
@@ -676,7 +633,6 @@ def main():
                         st.write(f"R²: {test_r2:.4f}")
                         st.write(f"Mean Target: {y_test.mean():.4f}")
                     
-                    # Coefficients for linear models
                     if hasattr(model, 'coef_'):
                         st.subheader("Model Coefficients")
                         coef_df = pd.DataFrame({
@@ -688,7 +644,6 @@ def main():
                         
                         st.dataframe(coef_df)
                     
-                    # OLS Summary (for linear models)
                     if model_type in ["Linear Regression", "Ridge Regression", "Lasso Regression", 
                                     "Elastic Net", "Polynomial Regression"]:
                         with st.expander("Detailed Statistical Summary (OLS)"):
@@ -697,7 +652,6 @@ def main():
                             st.text(ols_model.summary())
                 
                 else:
-                    # Classification metrics
                     with col1:
                         st.subheader("Training Set Metrics")
                         train_acc = accuracy_score(y_train, np.round(y_train_pred))
@@ -722,13 +676,11 @@ def main():
                         
                         st.write(f"Accuracy: {test_acc:.4f}")
                     
-                    # Classification report
                     st.subheader("Classification Report")
                     cr = classification_report(y_test, np.round(y_test_pred), output_dict=True)
                     cr_df = pd.DataFrame(cr).transpose()
                     st.dataframe(cr_df)
             
-            # Diagnostic plots
             st.header("Diagnostic Plots")
             
             create_diagnostic_plots(
@@ -736,17 +688,14 @@ def main():
                 model_type='regression' if analysis_type == "Regression" else 'classification'
             )
             
-            # Feature importance
             st.header("Feature Importance")
             feature_importance_plot(model, X_test, feature_names)
             
-            # Prediction tool
             st.header("Prediction Tool")
             
             with st.expander("Make Predictions"):
                 col_values = {}
                 
-                # Create input fields for each feature
                 cols = st.columns(3)
                 for i, feature in enumerate(x_vars):
                     col_idx = i % 3
@@ -761,10 +710,8 @@ def main():
                         float(feature_mean)
                     )
                 
-                # Create input DataFrame
                 input_df = pd.DataFrame([col_values])
                 
-                # Handle polynomial features
                 if model_type == "Polynomial Regression":
                     poly = PolynomialFeatures(degree=poly_degree, include_bias=False)
                     input_df = pd.DataFrame(
@@ -774,7 +721,6 @@ def main():
                 
                 if st.button("Predict"):
                     if modeling_approach == "Traditional Statistics":
-                        # For statsmodels, we need to create a proper DataFrame
                         pred_df = pd.DataFrame([col_values])
                         pred_df = sm.add_constant(pred_df)
                         prediction = model.predict(pred_df)
@@ -790,7 +736,6 @@ def main():
                             class_pred = 1 if prob >= 0.5 else 0
                             st.success(f"Predicted Class: {class_pred} (Probability: {prob:.4f})")
             
-            # Residual analysis for regression
             if analysis_type == "Regression":
                 st.header("Residual Analysis")
                 
@@ -809,7 +754,6 @@ def main():
                     })
                     st.dataframe(residual_stats)
                     
-                    # Durbin-Watson test for autocorrelation
                     from statsmodels.stats.stattools import durbin_watson
                     dw = durbin_watson(residuals)
                     st.write(f"Durbin-Watson Statistic: {dw:.4f}")
@@ -829,10 +773,8 @@ def main():
                     ax.set_title('Distribution of Residuals')
                     st.pyplot(fig)
                 
-                # Heteroscedasticity tests
                 st.subheader("Heteroscedasticity Tests")
                 
-                # Breusch-Pagan test
                 from statsmodels.stats.diagnostic import het_breuschpagan
                 X_with_const = sm.add_constant(X_test)
                 bp_test = het_breuschpagan(residuals, X_with_const)
@@ -850,7 +792,6 @@ def main():
                 else:
                     st.success("No significant heteroscedasticity detected by Breusch-Pagan test")
                 
-                # Residuals vs each predictor
                 st.subheader("Residuals vs Predictors")
                 predictor = st.selectbox("Select predictor to plot against residuals:", x_vars)
                 
@@ -862,7 +803,6 @@ def main():
                 ax.set_title(f'Residuals vs {predictor}')
                 st.pyplot(fig)
                 
-                # Normality tests
                 st.subheader("Normality Tests")
                 
                 from scipy import stats
@@ -882,7 +822,6 @@ def main():
                 else:
                     st.success("Residuals appear normally distributed based on tests")
         
-        # Download results
         if st.session_state.model_trained:
             st.sidebar.header("Export Results")
             
