@@ -1,12 +1,15 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
 from sklearn.linear_model import LinearRegression, Ridge, Lasso, ElasticNet, LogisticRegression
 from sklearn.preprocessing import PolynomialFeatures, StandardScaler
 from sklearn.ensemble import GradientBoostingRegressor
-from sklearn.metrics import mean_squared_error, r2_score, accuracy_score, confusion_matrix
+from sklearn.metrics import mean_squared_error, r2_score, accuracy_score, confusion_matrix, classification_report
 from mlxtend.feature_selection import SequentialFeatureSelector as SFS
 import statsmodels.api as sm
+import io
 
 # App title
 st.title("📊 Regression Analysis App")
@@ -50,21 +53,22 @@ if uploaded_file is not None:
         scaler = StandardScaler()
         X_scaled = scaler.fit_transform(X)
 
+        results_text = ""
+        model = None
+        y_pred = None
+
         if regression_type == "Simple Linear Regression" and len(x_vars) == 1:
             model = LinearRegression()
             model.fit(X, y)
             y_pred = model.predict(X)
-            st.write(f"**Intercept:** {model.intercept_:.4f}")
-            st.write(f"**Coefficient:** {model.coef_[0]:.4f}")
-            st.write(f"**R²:** {r2_score(y, y_pred):.4f}")
+            results_text = f"Intercept: {model.intercept_:.4f}\nCoefficient: {model.coef_[0]:.4f}\nR²: {r2_score(y, y_pred):.4f}"
 
         elif regression_type == "Multiple Linear Regression":
             model = LinearRegression()
             model.fit(X, y)
             y_pred = model.predict(X)
-            st.write(f"**Intercept:** {model.intercept_:.4f}")
-            st.write(f"**Coefficients:** {dict(zip(x_vars, model.coef_))}")
-            st.write(f"**R²:** {r2_score(y, y_pred):.4f}")
+            coefs = dict(zip(x_vars, model.coef_))
+            results_text = f"Intercept: {model.intercept_:.4f}\nCoefficients: {coefs}\nR²: {r2_score(y, y_pred):.4f}"
 
         elif regression_type == "Polynomial Regression":
             degree = st.slider("Select polynomial degree:", 2, 5, 2)
@@ -73,21 +77,21 @@ if uploaded_file is not None:
             model = LinearRegression()
             model.fit(X_poly, y)
             y_pred = model.predict(X_poly)
-            st.write(f"**R²:** {r2_score(y, y_pred):.4f}")
+            results_text = f"R²: {r2_score(y, y_pred):.4f}"
 
         elif regression_type == "Ridge Regression":
             alpha = st.slider("Select alpha (L2 penalty):", 0.01, 10.0, 1.0)
             model = Ridge(alpha=alpha)
             model.fit(X_scaled, y)
             y_pred = model.predict(X_scaled)
-            st.write(f"**R²:** {r2_score(y, y_pred):.4f}")
+            results_text = f"R²: {r2_score(y, y_pred):.4f}"
 
         elif regression_type == "Lasso Regression":
             alpha = st.slider("Select alpha (L1 penalty):", 0.01, 10.0, 1.0)
             model = Lasso(alpha=alpha)
             model.fit(X_scaled, y)
             y_pred = model.predict(X_scaled)
-            st.write(f"**R²:** {r2_score(y, y_pred):.4f}")
+            results_text = f"R²: {r2_score(y, y_pred):.4f}"
 
         elif regression_type == "Elastic Net Regression":
             alpha = st.slider("Alpha (penalty strength):", 0.01, 10.0, 1.0)
@@ -95,13 +99,13 @@ if uploaded_file is not None:
             model = ElasticNet(alpha=alpha, l1_ratio=l1_ratio)
             model.fit(X_scaled, y)
             y_pred = model.predict(X_scaled)
-            st.write(f"**R²:** {r2_score(y, y_pred):.4f}")
+            results_text = f"R²: {r2_score(y, y_pred):.4f}"
 
         elif regression_type == "Gradient Boosting":
             model = GradientBoostingRegressor()
             model.fit(X, y)
             y_pred = model.predict(X)
-            st.write(f"**R²:** {r2_score(y, y_pred):.4f}")
+            results_text = f"R²: {r2_score(y, y_pred):.4f}"
 
         elif regression_type == "Logistic Regression":
             model = LogisticRegression()
@@ -109,9 +113,8 @@ if uploaded_file is not None:
             y_pred = model.predict(X_scaled)
             acc = accuracy_score(y, y_pred)
             cm = confusion_matrix(y, y_pred)
-            st.write(f"**Accuracy:** {acc:.4f}")
-            st.write("**Confusion Matrix:**")
-            st.write(cm)
+            report = classification_report(y, y_pred)
+            results_text = f"Accuracy: {acc:.4f}\n\nConfusion Matrix:\n{cm}\n\nClassification Report:\n{report}"
 
         elif regression_type == "Stepwise Regression":
             direction = st.radio("Stepwise direction:", ["forward", "backward"])
@@ -127,8 +130,43 @@ if uploaded_file is not None:
             model = LinearRegression()
             model.fit(X[selected_feat], y)
             y_pred = model.predict(X[selected_feat])
-            st.write(f"**Selected Features:** {selected_feat}")
-            st.write(f"**R²:** {r2_score(y, y_pred):.4f}")
+            results_text = f"Selected Features: {selected_feat}\nR²: {r2_score(y, y_pred):.4f}"
 
         else:
             st.warning("Please ensure your selection and variables are appropriate for the model.")
+
+        if y_pred is not None:
+            residuals = y - y_pred
+
+            st.subheader("📈 Diagnostic Plots")
+            fig, ax = plt.subplots(1, 2, figsize=(12, 5))
+            sns.scatterplot(x=y_pred, y=residuals, ax=ax[0])
+            ax[0].axhline(0, color='red', linestyle='--')
+            ax[0].set_title("Residuals vs Fitted")
+            ax[0].set_xlabel("Fitted Values")
+            ax[0].set_ylabel("Residuals")
+
+            sns.histplot(residuals, bins=20, kde=True, ax=ax[1])
+            ax[1].set_title("Residuals Histogram")
+            st.pyplot(fig)
+
+            st.subheader("📝 Regression Results")
+            st.text(results_text)
+
+            buffer = io.StringIO()
+            buffer.write("Regression Type: " + regression_type + "\n\n")
+            buffer.write(results_text + "\n")
+
+            st.download_button(
+                label="Download Results as .txt",
+                data=buffer.getvalue(),
+                file_name="regression_results.txt",
+                mime="text/plain"
+            )
+
+            st.download_button(
+                label="Download Residuals as CSV",
+                data=residuals.to_csv(index=False),
+                file_name="residuals.csv",
+                mime="text/csv"
+            )
