@@ -87,7 +87,6 @@ def handle_missing_values(data: pd.DataFrame) -> pd.DataFrame:
         
         st.session_state.processed_data = cleaned_data
         st.session_state.missing_values_handled = True
-        st.experimental_rerun()
     
     return data
 
@@ -99,6 +98,7 @@ def apply_feature_scaling(data: pd.DataFrame) -> pd.DataFrame:
     ]
     
     if not continuous_vars:
+        st.session_state.scaling_applied = True
         return data
     
     scaling_method = st.sidebar.radio(
@@ -126,7 +126,6 @@ def apply_feature_scaling(data: pd.DataFrame) -> pd.DataFrame:
         st.session_state.processed_data = scaled_data
         st.session_state.scaling_applied = True
         st.success(f"Applied {scaling_method} to continuous variables")
-        st.experimental_rerun()
     
     return data
 
@@ -336,18 +335,15 @@ def main():
     if st.sidebar.button("Reset App"):
         for key in st.session_state.keys():
             del st.session_state[key]
-        st.experimental_rerun()
     
     # Data preprocessing section
     if st.session_state.data is not None and not st.session_state.missing_values_handled:
         st.session_state.processed_data = handle_missing_values(st.session_state.data)
-        return  # Stop execution until missing values are handled
     
     if (st.session_state.processed_data is not None and 
         st.session_state.missing_values_handled and 
         not st.session_state.scaling_applied):
         apply_feature_scaling(st.session_state.processed_data)
-        return  # Stop execution until scaling is decided
     
     # Main analysis section
     if (st.session_state.processed_data is not None and 
@@ -520,45 +516,110 @@ def main():
             with st.spinner("Training model..."):
                 if analysis_type == "Regression" and modeling_approach == "Traditional Statistics":
                     # Traditional statistical modeling
-                    if model_type == "OLS Regression":
-                        formula = f"{y_var} ~ " + " + ".join(x_vars)
-                        model = ols(formula=formula, data=data).fit()
+                    try:
+                        if model_type == "OLS Regression":
+                            formula = f"{y_var} ~ " + " + ".join(x_vars)
+                            model = ols(formula=formula, data=data).fit()
+                            
+                            # Store predictions
+                            y_train_pred = model.predict(X_train)
+                            y_test_pred = model.predict(X_test)
+                            
+                            # Show full statistical summary
+                            st.subheader("Statistical Model Summary")
+                            st.text(str(model.summary()))
+                            
+                            # Additional diagnostics
+                            st.subheader("Model Diagnostics")
+                            
+                            # Normality tests
+                            st.write("**Normality Tests**")
+                            jb_test = sm_diagnostic.het_white(model.resid, model.model.exog)
+                            st.write(f"Jarque-Bera Test: p-value = {jb_test[1]:.4f}")
+                            
+                            # Heteroscedasticity tests
+                            st.write("**Heteroscedasticity Tests**")
+                            white_test = sm_diagnostic.het_white(model.resid, model.model.exog)
+                            st.write(f"White Test: p-value = {white_test[1]:.4f}")
+                            
+                            # Multicollinearity check
+                            st.write("**Multicollinearity Check**")
+                            vif_data = pd.DataFrame()
+                            vif_data["feature"] = x_vars
+                            vif_data["VIF"] = [variance_inflation_factor(X_train.values, i) 
+                                            for i in range(len(x_vars))]
+                            st.dataframe(vif_data)
+                            
+                            # Store model for predictions
+                            st.session_state.model_trained = True
+                            st.session_state.model_results = {
+                                'model': model,
+                                'model_type': model_type,
+                                'analysis_type': analysis_type,
+                                'feature_names': x_vars,
+                                'X_train': X_train,
+                                'X_test': X_test,
+                                'y_train': y_train,
+                                'y_test': y_test,
+                                'y_train_pred': y_train_pred,
+                                'y_test_pred': y_test_pred,
+                                'modeling_approach': modeling_approach
+                            }
+                            
+                    except Exception as e:
+                        st.error(f"Error in traditional modeling: {str(e)}")
+                        return
+                else:
+                    # Machine learning approach
+                    try:
+                        if model_type == "Linear Regression":
+                            model = LinearRegression()
+                        elif model_type == "Ridge Regression":
+                            model = Ridge(alpha=alpha)
+                        elif model_type == "Lasso Regression":
+                            model = Lasso(alpha=alpha)
+                        elif model_type == "Elastic Net":
+                            model = ElasticNet(alpha=alpha, l1_ratio=l1_ratio)
+                        elif model_type == "Polynomial Regression":
+                            model = LinearRegression()
+                        elif model_type == "Gradient Boosting":
+                            model = GradientBoostingRegressor(
+                                n_estimators=n_estimators,
+                                max_depth=max_depth,
+                                learning_rate=learning_rate,
+                                random_state=42
+                            )
+                        elif model_type == "Logistic Regression":
+                            model = LogisticRegression(max_iter=1000, random_state=42)
+                        elif model_type == "Gradient Boosting Classifier":
+                            model = GradientBoostingClassifier(
+                                n_estimators=n_estimators,
+                                max_depth=max_depth,
+                                learning_rate=learning_rate,
+                                random_state=42
+                            )
                         
-                        # Store predictions
+                        model.fit(X_train, y_train)
+                        
+                        # Make predictions
                         y_train_pred = model.predict(X_train)
                         y_test_pred = model.predict(X_test)
                         
-                        # Show full statistical summary
-                        st.subheader("Statistical Model Summary")
-                        st.text(str(model.summary()))
+                        # Cross-validation if requested
+                        if do_cross_validation:
+                            create_cross_validation_results(
+                                X, y, model, 
+                                model_type='regression' if analysis_type == "Regression" else 'classification',
+                                cv=cv_folds
+                            )
                         
-                        # Additional diagnostics
-                        st.subheader("Model Diagnostics")
-                        
-                        # Normality tests
-                        st.write("**Normality Tests**")
-                        jb_test = sm_diagnostic.het_white(model.resid, model.model.exog)
-                        st.write(f"Jarque-Bera Test: p-value = {jb_test[1]:.4f}")
-                        
-                        # Heteroscedasticity tests
-                        st.write("**Heteroscedasticity Tests**")
-                        white_test = sm_diagnostic.het_white(model.resid, model.model.exog)
-                        st.write(f"White Test: p-value = {white_test[1]:.4f}")
-                        
-                        # Multicollinearity check
-                        st.write("**Multicollinearity Check**")
-                        vif_data = pd.DataFrame()
-                        vif_data["feature"] = x_vars
-                        vif_data["VIF"] = [variance_inflation_factor(X_train.values, i) 
-                                          for i in range(len(x_vars))]
-                        st.dataframe(vif_data)
-                        
-                        # Store model for predictions
+                        # Store results in session state
+                        st.session_state.model_trained = True
                         st.session_state.model_results = {
                             'model': model,
                             'model_type': model_type,
                             'analysis_type': analysis_type,
-                            'feature_names': x_vars,
+                            'feature_names': feature_names,
                             'X_train': X_train,
                             'X_test': X_test,
                             'y_train': y_train,
@@ -568,67 +629,9 @@ def main():
                             'modeling_approach': modeling_approach
                         }
                         
-                        st.experimental_rerun()
-                else:
-                    # Machine learning approach
-                    if model_type == "Linear Regression":
-                        model = LinearRegression()
-                    elif model_type == "Ridge Regression":
-                        model = Ridge(alpha=alpha)
-                    elif model_type == "Lasso Regression":
-                        model = Lasso(alpha=alpha)
-                    elif model_type == "Elastic Net":
-                        model = ElasticNet(alpha=alpha, l1_ratio=l1_ratio)
-                    elif model_type == "Polynomial Regression":
-                        model = LinearRegression()
-                    elif model_type == "Gradient Boosting":
-                        model = GradientBoostingRegressor(
-                            n_estimators=n_estimators,
-                            max_depth=max_depth,
-                            learning_rate=learning_rate,
-                            random_state=42
-                        )
-                    elif model_type == "Logistic Regression":
-                        model = LogisticRegression(max_iter=1000, random_state=42)
-                    elif model_type == "Gradient Boosting Classifier":
-                        model = GradientBoostingClassifier(
-                            n_estimators=n_estimators,
-                            max_depth=max_depth,
-                            learning_rate=learning_rate,
-                            random_state=42
-                        )
-                    
-                    model.fit(X_train, y_train)
-                    
-                    # Make predictions
-                    y_train_pred = model.predict(X_train)
-                    y_test_pred = model.predict(X_test)
-                    
-                    # Cross-validation if requested
-                    if do_cross_validation:
-                        create_cross_validation_results(
-                            X, y, model, 
-                            model_type='regression' if analysis_type == "Regression" else 'classification',
-                            cv=cv_folds
-                        )
-                    
-                    # Store results in session state
-                    st.session_state.model_trained = True
-                    st.session_state.model_results = {
-                        'model': model,
-                        'model_type': model_type,
-                        'analysis_type': analysis_type,
-                        'feature_names': feature_names,
-                        'X_train': X_train,
-                        'X_test': X_test,
-                        'y_train': y_train,
-                        'y_test': y_test,
-                        'y_train_pred': y_train_pred,
-                        'y_test_pred': y_test_pred,
-                        'modeling_approach': modeling_approach
-                    }
-                    
-                    st.experimental_rerun()
+                    except Exception as e:
+                        st.error(f"Error in machine learning modeling: {str(e)}")
+                        return
         
         # Results section
         if st.session_state.model_trained and st.session_state.model_results is not None:
