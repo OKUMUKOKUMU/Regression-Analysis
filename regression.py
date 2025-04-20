@@ -4,12 +4,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.linear_model import LinearRegression, Ridge, Lasso, ElasticNet, LogisticRegression
-from sklearn.preprocessing import PolynomialFeatures, StandardScaler
+from sklearn.preprocessing import (PolynomialFeatures, StandardScaler, 
+                                 MinMaxScaler, RobustScaler)
 from sklearn.ensemble import GradientBoostingRegressor, GradientBoostingClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import (mean_squared_error, r2_score, 
                             accuracy_score, confusion_matrix, 
                             classification_report, roc_auc_score)
+from sklearn.impute import SimpleImputer
 from mlxtend.feature_selection import SequentialFeatureSelector as SFS
 import statsmodels.api as sm
 import io
@@ -20,7 +22,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # App title and config
-st.set_page_config(page_title="Regression Analysis App", layout="wide")
+st.set_page_config(page_title="Advanced Regression Analysis", layout="wide")
 st.title("📊 Advanced Regression Analysis App")
 st.sidebar.title("Settings")
 
@@ -29,8 +31,102 @@ if 'model' not in st.session_state:
     st.session_state.model = None
 if 'data' not in st.session_state:
     st.session_state.data = None
+if 'processed_data' not in st.session_state:
+    st.session_state.processed_data = None
 
 # Helper functions
+def handle_missing_data(data: pd.DataFrame) -> pd.DataFrame:
+    """Handle missing values in the dataset"""
+    st.warning("⚠️ Dataset contains missing values. Please choose how to handle them.")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        method = st.radio(
+            "Imputation method:",
+            ["Drop rows with missing values", 
+             "Fill with mean (numeric only)",
+             "Fill with median (numeric only)",
+             "Fill with mode",
+             "Fill with constant value"]
+        )
+    
+    with col2:
+        if method == "Fill with constant value":
+            fill_value = st.text_input("Enter constant value to use (e.g., 0):", "0")
+            try:
+                fill_value = float(fill_value) if '.' in fill_value else int(fill_value)
+            except ValueError:
+                pass
+    
+    if st.button("Apply Missing Value Treatment"):
+        cleaned_data = data.copy()
+        if method == "Drop rows with missing values":
+            cleaned_data = data.dropna()
+            st.success(f"Removed {len(data) - len(cleaned_data)} rows with missing values.")
+        else:
+            imputer = None
+            if method == "Fill with mean (numeric only)":
+                imputer = SimpleImputer(strategy='mean')
+            elif method == "Fill with median (numeric only)":
+                imputer = SimpleImputer(strategy='median')
+            elif method == "Fill with mode":
+                imputer = SimpleImputer(strategy='most_frequent')
+            elif method == "Fill with constant value":
+                imputer = SimpleImputer(strategy='constant', fill_value=fill_value)
+            
+            if method in ["Fill with mean (numeric only)", "Fill with median (numeric only)"]:
+                numeric_cols = data.select_dtypes(include=np.number).columns
+                cleaned_data[numeric_cols] = imputer.fit_transform(data[numeric_cols])
+                st.success(f"Filled missing values in numeric columns using {method.split(' ')[2]}.")
+            else:
+                cleaned_data = pd.DataFrame(imputer.fit_transform(data), 
+                                   columns=data.columns, 
+                                   index=data.index)
+                st.success("Filled missing values in all columns.")
+        
+        st.dataframe(cleaned_data.head())
+        st.write(f"New shape: {cleaned_data.shape}")
+        return cleaned_data
+    
+    return data
+
+def preprocess_data(data: pd.DataFrame) -> pd.DataFrame:
+    """Apply scaling to continuous variables"""
+    processed_data = data.copy()
+    
+    # Identify continuous variables (numeric and not binary)
+    continuous_vars = [
+        col for col in processed_data.select_dtypes(include=np.number).columns
+        if len(processed_data[col].unique()) > 2
+    ]
+    
+    if continuous_vars:
+        st.sidebar.subheader("Feature Scaling Options")
+        scaling_method = st.sidebar.radio(
+            "Select scaling method:",
+            ["None", "Standardization (Z-score)", 
+             "Normalization (Min-Max)", "Robust Scaling"],
+            index=0
+        )
+        
+        if scaling_method != "None":
+            if st.sidebar.button("Apply Scaling"):
+                with st.spinner("Applying scaling..."):
+                    if scaling_method == "Standardization (Z-score)":
+                        scaler = StandardScaler()
+                    elif scaling_method == "Normalization (Min-Max)":
+                        scaler = MinMaxScaler()
+                    elif scaling_method == "Robust Scaling":
+                        scaler = RobustScaler()
+                    
+                    processed_data[continuous_vars] = scaler.fit_transform(
+                        processed_data[continuous_vars]
+                    )
+                    st.success(f"Applied {scaling_method} to continuous variables")
+    
+    return processed_data
+
 def validate_data(data: pd.DataFrame, x_vars: list, y_var: str) -> bool:
     """Validate the input data and selected variables"""
     if data.empty:
@@ -45,10 +141,6 @@ def validate_data(data: pd.DataFrame, x_vars: list, y_var: str) -> bool:
         if not pd.api.types.is_numeric_dtype(data[var]):
             st.error(f"Variable '{var}' must be numeric!")
             return False
-    
-    if data[x_vars].isnull().any().any() or data[y_var].isnull().any():
-        st.error("Data contains missing values! Please handle them first.")
-        return False
     
     return True
 
@@ -100,16 +192,26 @@ def main():
         
         if uploaded_file is not None:
             try:
-                st.session_state.data = pd.read_csv(uploaded_file)
+                raw_data = pd.read_csv(uploaded_file)
+                st.session_state.raw_data = raw_data
                 st.success("Data loaded successfully!")
+                
+                # Handle missing values first
+                if raw_data.isnull().sum().sum() > 0:
+                    raw_data = handle_missing_data(raw_data)
+                
+                # Then apply scaling if data exists
+                if raw_data is not None and not raw_data.empty:
+                    st.session_state.processed_data = preprocess_data(raw_data)
+                    
             except Exception as e:
                 st.error(f"Error loading file: {str(e)}")
     
-    if st.session_state.data is not None:
-        data = st.session_state.data
+    if 'processed_data' in st.session_state and st.session_state.processed_data is not None:
+        data = st.session_state.processed_data
         
         # Show data preview
-        with st.expander("🔍 Data Preview", expanded=False):
+        with st.expander("🔍 Processed Data Preview", expanded=False):
             st.dataframe(data.head())
             st.write(f"Shape: {data.shape}")
             st.write("Summary Statistics:")
@@ -324,7 +426,7 @@ def main():
                     st.pyplot(fig)
                 
                 # Test set evaluation
-                if test_size > 0:
+                if test_size > 0 and X_test is not None:
                     st.subheader("🧪 Test Set Evaluation")
                     
                     if regression_type == "Multiple Linear Regression":
@@ -345,6 +447,7 @@ def main():
                     if data[y_var].nunique() == 2:  # Classification
                         test_acc = accuracy_score(y_test, y_test_pred)
                         st.write(f"Test Accuracy: {test_acc:.4f}")
+                        st.write(f"ROC AUC: {roc_auc_score(y_test, y_test_pred):.4f}")
                     else:  # Regression
                         test_r2 = r2_score(y_test, y_test_pred)
                         test_mse = mean_squared_error(y_test, y_test_pred)
@@ -386,7 +489,7 @@ def main():
                         input_poly = poly.transform(input_df)
                         prediction = model.predict(input_poly)
                     elif regression_type in ["Ridge Regression", "Lasso Regression",
-                                            "Elastic Net Regression", "Logistic Regression"]:
+                                          "Elastic Net Regression", "Logistic Regression"]:
                         input_scaled = scaler.transform(input_df)
                         prediction = model.predict(input_scaled)
                     elif regression_type == "Stepwise Regression":
