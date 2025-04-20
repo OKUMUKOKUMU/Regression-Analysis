@@ -14,6 +14,9 @@ from sklearn.metrics import (mean_squared_error, r2_score,
 from sklearn.impute import SimpleImputer
 from mlxtend.feature_selection import SequentialFeatureSelector as SFS
 import statsmodels.api as sm
+from statsmodels.formula.api import ols
+import statsmodels.stats.diagnostic as sm_diagnostic
+from statsmodels.stats.outliers_influence import variance_inflation_factor
 import io
 import warnings
 
@@ -412,11 +415,22 @@ def main():
         
         with col1:
             if analysis_type == "Regression":
-                model_type = st.selectbox(
-                    "Select Model Type:",
-                    ["Linear Regression", "Ridge Regression", "Lasso Regression", 
-                     "Elastic Net", "Polynomial Regression", "Gradient Boosting"]
+                modeling_approach = st.radio(
+                    "Modeling Approach:",
+                    ["Traditional Statistics", "Machine Learning"]
                 )
+                
+                if modeling_approach == "Traditional Statistics":
+                    model_type = st.selectbox(
+                        "Select Model Type:",
+                        ["OLS Regression", "Weighted Least Squares"]
+                    )
+                else:
+                    model_type = st.selectbox(
+                        "Select Model Type:",
+                        ["Linear Regression", "Ridge Regression", "Lasso Regression", 
+                         "Elastic Net", "Polynomial Regression", "Gradient Boosting"]
+                    )
             else:
                 model_type = st.selectbox(
                     "Select Model Type:",
@@ -504,68 +518,120 @@ def main():
             
             # Initialize and train model
             with st.spinner("Training model..."):
-                if model_type == "Linear Regression":
-                    model = LinearRegression()
-                elif model_type == "Ridge Regression":
-                    model = Ridge(alpha=alpha)
-                elif model_type == "Lasso Regression":
-                    model = Lasso(alpha=alpha)
-                elif model_type == "Elastic Net":
-                    model = ElasticNet(alpha=alpha, l1_ratio=l1_ratio)
-                elif model_type == "Polynomial Regression":
-                    model = LinearRegression()
-                elif model_type == "Gradient Boosting":
-                    model = GradientBoostingRegressor(
-                        n_estimators=n_estimators,
-                        max_depth=max_depth,
-                        learning_rate=learning_rate,
-                        random_state=42
-                    )
-                elif model_type == "Logistic Regression":
-                    model = LogisticRegression(max_iter=1000, random_state=42)
-                elif model_type == "Gradient Boosting Classifier":
-                    model = GradientBoostingClassifier(
-                        n_estimators=n_estimators,
-                        max_depth=max_depth,
-                        learning_rate=learning_rate,
-                        random_state=42
-                    )
-                
-                model.fit(X_train, y_train)
-            
-            # Make predictions
-            y_train_pred = model.predict(X_train)
-            y_test_pred = model.predict(X_test)
-            
-            # Cross-validation if requested
-            if do_cross_validation:
-                create_cross_validation_results(
-                    X, y, model, 
-                    model_type='regression' if analysis_type == "Regression" else 'classification',
-                    cv=cv_folds
-                )
-            
-            # Store results in session state
-            st.session_state.model_trained = True
-            st.session_state.model_results = {
-                'model': model,
-                'model_type': model_type,
-                'analysis_type': analysis_type,
-                'feature_names': feature_names,
-                'X_train': X_train,
-                'X_test': X_test,
-                'y_train': y_train,
-                'y_test': y_test,
-                'y_train_pred': y_train_pred,
-                'y_test_pred': y_test_pred
-            }
-            
-            st.experimental_rerun()
+                if analysis_type == "Regression" and modeling_approach == "Traditional Statistics":
+                    # Traditional statistical modeling
+                    if model_type == "OLS Regression":
+                        formula = f"{y_var} ~ " + " + ".join(x_vars)
+                        model = ols(formula=formula, data=data).fit()
+                        
+                        # Store predictions
+                        y_train_pred = model.predict(X_train)
+                        y_test_pred = model.predict(X_test)
+                        
+                        # Show full statistical summary
+                        st.subheader("Statistical Model Summary")
+                        st.text(str(model.summary()))
+                        
+                        # Additional diagnostics
+                        st.subheader("Model Diagnostics")
+                        
+                        # Normality tests
+                        st.write("**Normality Tests**")
+                        jb_test = sm_diagnostic.het_white(model.resid, model.model.exog)
+                        st.write(f"Jarque-Bera Test: p-value = {jb_test[1]:.4f}")
+                        
+                        # Heteroscedasticity tests
+                        st.write("**Heteroscedasticity Tests**")
+                        white_test = sm_diagnostic.het_white(model.resid, model.model.exog)
+                        st.write(f"White Test: p-value = {white_test[1]:.4f}")
+                        
+                        # Multicollinearity check
+                        st.write("**Multicollinearity Check**")
+                        vif_data = pd.DataFrame()
+                        vif_data["feature"] = x_vars
+                        vif_data["VIF"] = [variance_inflation_factor(X_train.values, i) 
+                                          for i in range(len(x_vars))]
+                        st.dataframe(vif_data)
+                        
+                        # Store model for predictions
+                        st.session_state.model_results = {
+                            'model': model,
+                            'model_type': model_type,
+                            'analysis_type': analysis_type,
+                            'feature_names': x_vars,
+                            'X_train': X_train,
+                            'X_test': X_test,
+                            'y_train': y_train,
+                            'y_test': y_test,
+                            'y_train_pred': y_train_pred,
+                            'y_test_pred': y_test_pred,
+                            'modeling_approach': modeling_approach
+                        }
+                        
+                        st.experimental_rerun()
+                else:
+                    # Machine learning approach
+                    if model_type == "Linear Regression":
+                        model = LinearRegression()
+                    elif model_type == "Ridge Regression":
+                        model = Ridge(alpha=alpha)
+                    elif model_type == "Lasso Regression":
+                        model = Lasso(alpha=alpha)
+                    elif model_type == "Elastic Net":
+                        model = ElasticNet(alpha=alpha, l1_ratio=l1_ratio)
+                    elif model_type == "Polynomial Regression":
+                        model = LinearRegression()
+                    elif model_type == "Gradient Boosting":
+                        model = GradientBoostingRegressor(
+                            n_estimators=n_estimators,
+                            max_depth=max_depth,
+                            learning_rate=learning_rate,
+                            random_state=42
+                        )
+                    elif model_type == "Logistic Regression":
+                        model = LogisticRegression(max_iter=1000, random_state=42)
+                    elif model_type == "Gradient Boosting Classifier":
+                        model = GradientBoostingClassifier(
+                            n_estimators=n_estimators,
+                            max_depth=max_depth,
+                            learning_rate=learning_rate,
+                            random_state=42
+                        )
+                    
+                    model.fit(X_train, y_train)
+                    
+                    # Make predictions
+                    y_train_pred = model.predict(X_train)
+                    y_test_pred = model.predict(X_test)
+                    
+                    # Cross-validation if requested
+                    if do_cross_validation:
+                        create_cross_validation_results(
+                            X, y, model, 
+                            model_type='regression' if analysis_type == "Regression" else 'classification',
+                            cv=cv_folds
+                        )
+                    
+                    # Store results in session state
+                    st.session_state.model_trained = True
+                    st.session_state.model_results = {
+                        'model': model,
+                        'model_type': model_type,
+                        'analysis_type': analysis_type,
+                        'feature_names': feature_names,
+                        'X_train': X_train,
+                        'X_test': X_test,
+                        'y_train': y_train,
+                        'y_test': y_test,
+                        'y_train_pred': y_train_pred,
+                        'y_test_pred': y_test_pred,
+                        'modeling_approach': modeling_approach
+                    }
+                    
+                    st.experimental_rerun()
         
         # Results section
         if st.session_state.model_trained and st.session_state.model_results is not None:
-            st.header("Model Results")
-            
             res = st.session_state.model_results
             model = res['model']
             model_type = res['model_type']
@@ -577,80 +643,87 @@ def main():
             y_test = res['y_test']
             y_train_pred = res['y_train_pred']
             y_test_pred = res['y_test_pred']
+            modeling_approach = res.get('modeling_approach', 'Machine Learning')
             
-            col1, col2 = st.columns(2)
+            st.header("Model Results")
             
-            if analysis_type == "Regression":
-                # Regression metrics
-                with col1:
-                    st.subheader("Training Set Metrics")
-                    train_rmse = np.sqrt(mean_squared_error(y_train, y_train_pred))
-                    train_r2 = r2_score(y_train, y_train_pred)
-                    
-                    st.write(f"RMSE: {train_rmse:.4f}")
-                    st.write(f"R²: {train_r2:.4f}")
-                    st.write(f"Mean Target: {y_train.mean():.4f}")
-                
-                with col2:
-                    st.subheader("Test Set Metrics")
-                    test_rmse = np.sqrt(mean_squared_error(y_test, y_test_pred))
-                    test_r2 = r2_score(y_test, y_test_pred)
-                    
-                    st.write(f"RMSE: {test_rmse:.4f}")
-                    st.write(f"R²: {test_r2:.4f}")
-                    st.write(f"Mean Target: {y_test.mean():.4f}")
-                
-                # Coefficients for linear models
-                if hasattr(model, 'coef_'):
-                    st.subheader("Model Coefficients")
-                    coef_df = pd.DataFrame({
-                        'Feature': feature_names,
-                        'Coefficient': model.coef_
-                    })
-                    if hasattr(model, 'intercept_'):
-                        st.write(f"Intercept: {model.intercept_:.4f}")
-                    
-                    st.dataframe(coef_df)
-                
-                # OLS Summary (for linear models)
-                if model_type in ["Linear Regression", "Ridge Regression", "Lasso Regression", 
-                                "Elastic Net", "Polynomial Regression"]:
-                    with st.expander("Detailed Statistical Summary (OLS)"):
-                        X_with_const = sm.add_constant(X_train)
-                        ols_model = sm.OLS(y_train, X_with_const).fit()
-                        st.text(ols_model.summary())
-            
+            if modeling_approach == "Traditional Statistics":
+                # Already shown summary in training section
+                pass
             else:
-                # Classification metrics
-                with col1:
-                    st.subheader("Training Set Metrics")
-                    train_acc = accuracy_score(y_train, np.round(y_train_pred))
-                    
-                    try:
-                        train_auc = roc_auc_score(y_train, y_train_pred)
-                        st.write(f"AUC: {train_auc:.4f}")
-                    except:
-                        pass
-                    
-                    st.write(f"Accuracy: {train_acc:.4f}")
+                col1, col2 = st.columns(2)
                 
-                with col2:
-                    st.subheader("Test Set Metrics")
-                    test_acc = accuracy_score(y_test, np.round(y_test_pred))
+                if analysis_type == "Regression":
+                    # Regression metrics
+                    with col1:
+                        st.subheader("Training Set Metrics")
+                        train_rmse = np.sqrt(mean_squared_error(y_train, y_train_pred))
+                        train_r2 = r2_score(y_train, y_train_pred)
+                        
+                        st.write(f"RMSE: {train_rmse:.4f}")
+                        st.write(f"R²: {train_r2:.4f}")
+                        st.write(f"Mean Target: {y_train.mean():.4f}")
                     
-                    try:
-                        test_auc = roc_auc_score(y_test, y_test_pred)
-                        st.write(f"AUC: {test_auc:.4f}")
-                    except:
-                        pass
+                    with col2:
+                        st.subheader("Test Set Metrics")
+                        test_rmse = np.sqrt(mean_squared_error(y_test, y_test_pred))
+                        test_r2 = r2_score(y_test, y_test_pred)
+                        
+                        st.write(f"RMSE: {test_rmse:.4f}")
+                        st.write(f"R²: {test_r2:.4f}")
+                        st.write(f"Mean Target: {y_test.mean():.4f}")
                     
-                    st.write(f"Accuracy: {test_acc:.4f}")
+                    # Coefficients for linear models
+                    if hasattr(model, 'coef_'):
+                        st.subheader("Model Coefficients")
+                        coef_df = pd.DataFrame({
+                            'Feature': feature_names,
+                            'Coefficient': model.coef_
+                        })
+                        if hasattr(model, 'intercept_'):
+                            st.write(f"Intercept: {model.intercept_:.4f}")
+                        
+                        st.dataframe(coef_df)
+                    
+                    # OLS Summary (for linear models)
+                    if model_type in ["Linear Regression", "Ridge Regression", "Lasso Regression", 
+                                    "Elastic Net", "Polynomial Regression"]:
+                        with st.expander("Detailed Statistical Summary (OLS)"):
+                            X_with_const = sm.add_constant(X_train)
+                            ols_model = sm.OLS(y_train, X_with_const).fit()
+                            st.text(ols_model.summary())
                 
-                # Classification report
-                st.subheader("Classification Report")
-                cr = classification_report(y_test, np.round(y_test_pred), output_dict=True)
-                cr_df = pd.DataFrame(cr).transpose()
-                st.dataframe(cr_df)
+                else:
+                    # Classification metrics
+                    with col1:
+                        st.subheader("Training Set Metrics")
+                        train_acc = accuracy_score(y_train, np.round(y_train_pred))
+                        
+                        try:
+                            train_auc = roc_auc_score(y_train, y_train_pred)
+                            st.write(f"AUC: {train_auc:.4f}")
+                        except:
+                            pass
+                        
+                        st.write(f"Accuracy: {train_acc:.4f}")
+                    
+                    with col2:
+                        st.subheader("Test Set Metrics")
+                        test_acc = accuracy_score(y_test, np.round(y_test_pred))
+                        
+                        try:
+                            test_auc = roc_auc_score(y_test, y_test_pred)
+                            st.write(f"AUC: {test_auc:.4f}")
+                        except:
+                            pass
+                        
+                        st.write(f"Accuracy: {test_acc:.4f}")
+                    
+                    # Classification report
+                    st.subheader("Classification Report")
+                    cr = classification_report(y_test, np.round(y_test_pred), output_dict=True)
+                    cr_df = pd.DataFrame(cr).transpose()
+                    st.dataframe(cr_df)
             
             # Diagnostic plots
             st.header("Diagnostic Plots")
@@ -697,16 +770,24 @@ def main():
                     )
                 
                 if st.button("Predict"):
-                    prediction = model.predict(input_df)
-                    
-                    if analysis_type == "Regression":
+                    if modeling_approach == "Traditional Statistics":
+                        # For statsmodels, we need to create a proper DataFrame
+                        pred_df = pd.DataFrame([col_values])
+                        pred_df = sm.add_constant(pred_df)
+                        prediction = model.predict(pred_df)
                         st.success(f"Predicted {y_var}: {prediction[0]:.4f}")
+                        st.write(f"95% Confidence Interval: [{model.conf_int().iloc[0,0]:.4f}, {model.conf_int().iloc[0,1]:.4f}]")
                     else:
-                        prob = prediction[0]
-                        class_pred = 1 if prob >= 0.5 else 0
-                        st.success(f"Predicted Class: {class_pred} (Probability: {prob:.4f})")
+                        prediction = model.predict(input_df)
+                        
+                        if analysis_type == "Regression":
+                            st.success(f"Predicted {y_var}: {prediction[0]:.4f}")
+                        else:
+                            prob = prediction[0]
+                            class_pred = 1 if prob >= 0.5 else 0
+                            st.success(f"Predicted Class: {class_pred} (Probability: {prob:.4f})")
             
-            # Residual analysis
+            # Residual analysis for regression
             if analysis_type == "Regression":
                 st.header("Residual Analysis")
                 
@@ -811,21 +892,23 @@ def main():
                     buffer.write(f"Target Variable: {y_var}\n")
                     buffer.write(f"Predictor Variables: {', '.join(x_vars)}\n\n")
                     
-                    buffer.write("Training Set Metrics:\n")
-                    buffer.write(f"RMSE: {train_rmse:.4f}\n")
-                    buffer.write(f"R²: {train_r2:.4f}\n\n")
-                    
-                    buffer.write("Test Set Metrics:\n")
-                    buffer.write(f"RMSE: {test_rmse:.4f}\n")
-                    buffer.write(f"R²: {test_r2:.4f}\n\n")
-                    
-                    if hasattr(model, 'coef_'):
-                        buffer.write("Model Coefficients:\n")
-                        for feat, coef in zip(feature_names, model.coef_):
-                            buffer.write(f"{feat}: {coef:.4f}\n")
-                        if hasattr(model, 'intercept_'):
-                            buffer.write(f"Intercept: {model.intercept_:.4f}\n")
-                
+                    if modeling_approach == "Traditional Statistics":
+                        buffer.write(str(model.summary()))
+                    else:
+                        buffer.write("Training Set Metrics:\n")
+                        buffer.write(f"RMSE: {train_rmse:.4f}\n")
+                        buffer.write(f"R²: {train_r2:.4f}\n\n")
+                        
+                        buffer.write("Test Set Metrics:\n")
+                        buffer.write(f"RMSE: {test_rmse:.4f}\n")
+                        buffer.write(f"R²: {test_r2:.4f}\n\n")
+                        
+                        if hasattr(model, 'coef_'):
+                            buffer.write("Model Coefficients:\n")
+                            for feat, coef in zip(feature_names, model.coef_):
+                                buffer.write(f"{feat}: {coef:.4f}\n")
+                            if hasattr(model, 'intercept_'):
+                                buffer.write(f"Intercept: {model.intercept_:.4f}\n")
                 else:
                     buffer.write(f"Classification Model Summary\n")
                     buffer.write(f"Model Type: {model_type}\n")
