@@ -22,7 +22,6 @@ if uploaded_file is not None:
     st.write("### Data Preview")
     st.dataframe(data.head())
 
-    # Variable selection
     regression_type = st.selectbox("Select the type of regression:", [
         "Simple Linear Regression",
         "Multiple Linear Regression",
@@ -44,18 +43,17 @@ if uploaded_file is not None:
         if y_unique != 2:
             st.warning(f"The selected Y variable has {y_unique} unique values. Logistic regression requires a binary outcome.")
 
-    # Run regression when ready
     if st.button("Run Regression"):
         X = data[x_vars]
         y = data[y_var]
 
-        # Standardize features for regularized regressions
         scaler = StandardScaler()
         X_scaled = scaler.fit_transform(X)
 
         results_text = ""
         model = None
         y_pred = None
+        X_used = X
 
         if regression_type == "Simple Linear Regression" and len(x_vars) == 1:
             model = LinearRegression()
@@ -64,11 +62,11 @@ if uploaded_file is not None:
             results_text = f"Intercept: {model.intercept_:.4f}\nCoefficient: {model.coef_[0]:.4f}\nR²: {r2_score(y, y_pred):.4f}"
 
         elif regression_type == "Multiple Linear Regression":
-            model = LinearRegression()
-            model.fit(X, y)
-            y_pred = model.predict(X)
-            coefs = dict(zip(x_vars, model.coef_))
-            results_text = f"Intercept: {model.intercept_:.4f}\nCoefficients: {coefs}\nR²: {r2_score(y, y_pred):.4f}"
+            X_with_const = sm.add_constant(X)
+            model = sm.OLS(y, X_with_const).fit()
+            y_pred = model.predict(X_with_const)
+            results_text = model.summary().as_text()
+            X_used = X_with_const
 
         elif regression_type == "Polynomial Regression":
             degree = st.slider("Select polynomial degree:", 2, 5, 2)
@@ -78,6 +76,7 @@ if uploaded_file is not None:
             model.fit(X_poly, y)
             y_pred = model.predict(X_poly)
             results_text = f"R²: {r2_score(y, y_pred):.4f}"
+            X_used = X_poly
 
         elif regression_type == "Ridge Regression":
             alpha = st.slider("Select alpha (L2 penalty):", 0.01, 10.0, 1.0)
@@ -85,6 +84,7 @@ if uploaded_file is not None:
             model.fit(X_scaled, y)
             y_pred = model.predict(X_scaled)
             results_text = f"R²: {r2_score(y, y_pred):.4f}"
+            X_used = X_scaled
 
         elif regression_type == "Lasso Regression":
             alpha = st.slider("Select alpha (L1 penalty):", 0.01, 10.0, 1.0)
@@ -92,6 +92,7 @@ if uploaded_file is not None:
             model.fit(X_scaled, y)
             y_pred = model.predict(X_scaled)
             results_text = f"R²: {r2_score(y, y_pred):.4f}"
+            X_used = X_scaled
 
         elif regression_type == "Elastic Net Regression":
             alpha = st.slider("Alpha (penalty strength):", 0.01, 10.0, 1.0)
@@ -100,6 +101,7 @@ if uploaded_file is not None:
             model.fit(X_scaled, y)
             y_pred = model.predict(X_scaled)
             results_text = f"R²: {r2_score(y, y_pred):.4f}"
+            X_used = X_scaled
 
         elif regression_type == "Gradient Boosting":
             model = GradientBoostingRegressor()
@@ -115,6 +117,7 @@ if uploaded_file is not None:
             cm = confusion_matrix(y, y_pred)
             report = classification_report(y, y_pred)
             results_text = f"Accuracy: {acc:.4f}\n\nConfusion Matrix:\n{cm}\n\nClassification Report:\n{report}"
+            X_used = X_scaled
 
         elif regression_type == "Stepwise Regression":
             direction = st.radio("Stepwise direction:", ["forward", "backward"])
@@ -130,16 +133,20 @@ if uploaded_file is not None:
             model = LinearRegression()
             model.fit(X[selected_feat], y)
             y_pred = model.predict(X[selected_feat])
-            results_text = f"Selected Features: {selected_feat}\nR²: {r2_score(y, y_pred):.4f}"
+            coefs = dict(zip(selected_feat, model.coef_))
+            results_text = f"Selected Features: {selected_feat}\nCoefficients: {coefs}\nR²: {r2_score(y, y_pred):.4f}"
+            X_used = X[selected_feat]
 
         else:
             st.warning("Please ensure your selection and variables are appropriate for the model.")
 
         if y_pred is not None:
             residuals = y - y_pred
+            leverage = (X_used * np.linalg.pinv(X_used.T @ X_used) @ X_used.T).sum(axis=1)
+            cooks_d = residuals**2 / (len(x_vars) * np.var(residuals)) * leverage
 
             st.subheader("📈 Diagnostic Plots")
-            fig, ax = plt.subplots(1, 2, figsize=(12, 5))
+            fig, ax = plt.subplots(1, 3, figsize=(18, 5))
             sns.scatterplot(x=y_pred, y=residuals, ax=ax[0])
             ax[0].axhline(0, color='red', linestyle='--')
             ax[0].set_title("Residuals vs Fitted")
@@ -148,6 +155,11 @@ if uploaded_file is not None:
 
             sns.histplot(residuals, bins=20, kde=True, ax=ax[1])
             ax[1].set_title("Residuals Histogram")
+
+            sns.scatterplot(x=leverage, y=cooks_d, ax=ax[2])
+            ax[2].set_title("Cook's Distance vs Leverage")
+            ax[2].set_xlabel("Leverage")
+            ax[2].set_ylabel("Cook's Distance")
             st.pyplot(fig)
 
             st.subheader("📝 Regression Results")
@@ -164,9 +176,35 @@ if uploaded_file is not None:
                 mime="text/plain"
             )
 
+            residuals_df = pd.DataFrame({"Residuals": residuals, "Leverage": leverage, "Cook's Distance": cooks_d})
             st.download_button(
-                label="Download Residuals as CSV",
-                data=residuals.to_csv(index=False),
-                file_name="residuals.csv",
+                label="Download Residuals and Diagnostics as CSV",
+                data=residuals_df.to_csv(index=False),
+                file_name="diagnostics.csv",
                 mime="text/csv"
             )
+
+            st.subheader("📲 Make Predictions")
+            new_data = {}
+            for var in x_vars:
+                val = st.number_input(f"Enter value for {var}")
+                new_data[var] = val
+
+            if st.button("Predict"):
+                input_df = pd.DataFrame([new_data])
+                if regression_type in ["Ridge Regression", "Lasso Regression", "Elastic Net Regression", "Logistic Regression"]:
+                    input_scaled = scaler.transform(input_df)
+                    pred_val = model.predict(input_scaled)
+                elif regression_type == "Polynomial Regression":
+                    input_poly = poly.transform(input_df)
+                    pred_val = model.predict(input_poly)
+                elif regression_type == "Stepwise Regression":
+                    input_df = input_df[selected_feat]
+                    pred_val = model.predict(input_df)
+                elif regression_type == "Multiple Linear Regression":
+                    input_df = sm.add_constant(input_df, has_constant='add')
+                    pred_val = model.predict(input_df)
+                else:
+                    pred_val = model.predict(input_df)
+
+                st.success(f"Predicted Y: {pred_val[0]:.4f}")
